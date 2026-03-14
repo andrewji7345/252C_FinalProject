@@ -203,7 +203,8 @@ def plotWithRatio(
     logY=False,
     extraText=None,
     leg="upper right",
-    binwnorm=None
+    binwnorm=None,
+    displeg=True,
 ):
 
     # make a nice ratio plot
@@ -231,9 +232,9 @@ def plotWithRatio(
     from cycler import cycler
 
     if not colors is None:
-        if invertStack:
-            _n = len(h.identifiers(overlay)) - 1
-            colors = colors[_n::-1]
+        #if True:
+        #    _n = len(h.identifiers(overlay)) - 1
+        #    colors = colors[_n::-1]
         ax.set_prop_cycle(cycler(color=colors))
 
     h.plot(
@@ -326,7 +327,9 @@ def plotWithRatio(
         leg_loc = "upper left"
 
     if not leg is None:
-        ax.legend(bbox_to_anchor=leg_anchor, loc=leg_loc)
+        legend = ax.legend(bbox_to_anchor=leg_anchor, loc=leg_loc)
+    if displeg==False:
+        legend.remove()
         
     ratio_mcStatUp = np.append(1 + np.sqrt(h[{overlay:sum}].variances())/h[{overlay:sum}].values(),[0])
     ratio_mcStatDo = np.append(1 - np.sqrt(h[{overlay:sum}].variances())/h[{overlay:sum}].values(),[0])
@@ -399,4 +402,300 @@ def plotWithRatio(
         verticalalignment="bottom",
         transform=ax.transAxes,
     )
+    return fig, ax, rax
+
+def plot_bayesian_postfit(
+    pred_summary,
+    data_vals,
+    data_err,
+    bin_edges,
+    lumi=35.9,
+    label="CMS Preliminary",
+    colors=None,
+    ratioRange=[0.5, 1.5],
+    xRange=None,
+    yRange=None,
+    logY=False,
+    extraText=None,
+    leg="upper right",
+    binwnorm=None,
+    title="blank title",
+    displeg=True,
+):
+    """
+    Bayesian postfit plot styled to match plotWithRatio as closely as possible.
+
+    Parameters
+    ----------
+    pred_summary : dict
+        Expected keys:
+          - pred_summary["comp_median"][name] : per-component median prediction
+          - pred_summary["total_median"]      : total posterior median
+          - pred_summary["total_lo"]          : lower credible bound
+          - pred_summary["total_hi"]          : upper credible bound
+    data_vals : array-like
+        Observed data counts per bin.
+    data_err : array-like
+        Data uncertainties per bin.
+    bin_edges : array-like
+        Bin edges.
+    """
+    #comp_order = ["NonPrompt", "MisID", "other", "ZG", "WG", "ttgamma"]
+    comp_order = ["ttgamma", "WG", "ZG", "other", "MisID", "NonPrompt"]
+
+    # Match plotWithRatio rcParams
+    plt.rcParams.update(
+        {
+            "font.size": 14,
+            "axes.titlesize": 18,
+            "axes.labelsize": 18,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+        }
+    )
+
+    centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    widths = np.diff(bin_edges)
+
+    fig, (ax, rax) = plt.subplots(
+        2, 1, figsize=(7, 7),
+        gridspec_kw={"height_ratios": (3, 1)},
+        sharex=True,
+    )
+    fig.subplots_adjust(hspace=0.07)
+
+    # Optional color handling
+    if colors is not None:
+        colors_to_use = {name: colors[i] for i, name in enumerate(comp_order[:len(colors)])}
+    else:
+        colors_to_use = {}
+
+    # Stacked posterior-median components
+    bottom = np.zeros_like(centers, dtype=float)
+    bottoms = []
+    for name in comp_order:
+        if name not in pred_summary["comp_median"]:
+            continue
+        y = np.asarray(pred_summary["comp_median"][name], dtype=float)
+
+        if binwnorm:
+            y_plot = y / widths
+        else:
+            y_plot = y
+
+        ax.bar(
+            bin_edges[:-1],
+            y_plot,
+            width=widths,
+            bottom=bottom,
+            align="edge",
+            label=name,
+            edgecolor=None,
+            linewidth=0,
+            color=colors_to_use.get(name, None),
+        )
+        bottom += y_plot
+        bottoms.append(bottom.copy())
+    for tmp in bottoms:
+        ax.stairs(
+            tmp,
+            bin_edges,
+            color="black",
+            linewidth=0.8
+        )
+
+    # Total posterior median and credible interval
+    total_med = np.asarray(pred_summary["total_median"], dtype=float)
+    total_lo  = np.asarray(pred_summary["total_lo"], dtype=float)
+    total_hi  = np.asarray(pred_summary["total_hi"], dtype=float)
+
+    if binwnorm:
+        total_med_plot = total_med / widths
+        total_lo_plot  = total_lo / widths
+        total_hi_plot  = total_hi / widths
+        data_plot      = np.asarray(data_vals, dtype=float) / widths
+        data_err_plot  = np.asarray(data_err, dtype=float) / widths
+    else:
+        total_med_plot = total_med
+        total_lo_plot  = total_lo
+        total_hi_plot  = total_hi
+        data_plot      = np.asarray(data_vals, dtype=float)
+        data_err_plot  = np.asarray(data_err, dtype=float)
+
+    # Posterior band styled like plotWithRatio uncertainty band
+    band_up = np.append(total_hi_plot, [0])
+    band_do = np.append(total_lo_plot, [0])
+
+    uncertainty_band = ax.fill_between(
+        bin_edges,
+        band_up,
+        band_do,
+        step="post",
+        hatch="///",
+        facecolor="none",
+        edgecolor="gray",
+        linewidth=0,
+        label="68% credible band",
+    )
+
+    # Total posterior median outline ##
+    ax.stairs(
+        total_med_plot,
+        bin_edges,
+        color="black",
+        linewidth=1,
+        label="Posterior median",
+    )
+
+    # Data styling to match plotWithRatio
+    ax.errorbar(
+        x=centers,
+        y=data_plot,
+        yerr=data_err_plot,
+        color="black",
+        marker=".",
+        markersize=10,
+        linewidth=0,
+        elinewidth=0.5 if binwnorm else 1,
+        label="Data",
+    )
+
+    # Axis labels
+    if binwnorm is not None:
+        ax.set_ylabel(f"<Events/{binwnorm}>")
+        if ax.get_xlabel() is not None and "[" in ax.get_xlabel():
+            units = ax.get_xlabel().split("[")[-1].split("]")[0]
+            ax.set_ylabel(f"<Events / {binwnorm} {units}>")
+    else:
+        ax.set_ylabel("Events")
+
+    ax.autoscale(axis="x", tight=True)
+    ax.set_ylim(0, None)
+    ax.set_xlabel(None)
+
+    # Legend placement matching plotWithRatio
+    if leg == "right":
+        leg_anchor = (1.0, 1.0)
+        leg_loc = "upper left"
+    elif leg == "upper right":
+        leg_anchor = (1.0, 1.0)
+        leg_loc = "upper right"
+    elif leg == "upper left":
+        leg_anchor = (0.0, 1.0)
+        leg_loc = "upper left"
+    else:
+        leg_anchor = (1.0, 1.0)
+        leg_loc = "upper right"
+
+    if leg is not None:
+
+        handles, labels = ax.get_legend_handles_labels()
     
+        desired_order = [
+            "NonPrompt",
+            "MisID",
+            "other",
+            "ZG",
+            "WG",
+            "ttgamma",
+            "Data",
+            "Posterior median",
+            "68% credible band",
+        ]
+    
+        # determine ordering
+        order = [labels.index(l) for l in desired_order if l in labels]
+    
+        handles = [handles[i] for i in order]
+        labels  = [labels[i] for i in order]
+    
+        # create legend
+        legend = ax.legend(handles, labels, bbox_to_anchor=leg_anchor, loc=leg_loc)
+    
+        # style stack entries with black outlines
+        stack_labels = {"NonPrompt", "MisID", "other", "ZG", "WG", "ttgamma"}
+    
+        for handle, text in zip(legend.legend_handles, legend.texts):
+            if text.get_text() in stack_labels and hasattr(handle, "set_edgecolor"):
+                handle.set_edgecolor("black")
+                handle.set_linewidth(1)
+        if displeg==False:
+            legend.remove()
+
+    # Ratio panel
+    safe_total = np.where(total_med > 0, total_med, np.nan)
+    ratio = np.asarray(data_vals, dtype=float) / safe_total
+    ratio_err = np.asarray(data_err, dtype=float) / safe_total
+
+    # Bayesian band in ratio panel, normalized to posterior median
+    ratio_band_up = np.append(total_hi / safe_total, [0])
+    ratio_band_do = np.append(total_lo / safe_total, [0])
+
+    ratio_uncertainty_band = rax.fill_between(
+        bin_edges,
+        ratio_band_up,
+        ratio_band_do,
+        step="post",
+        color="lightgray",
+    )
+
+    rax.errorbar(
+        x=centers,
+        y=ratio,
+        yerr=ratio_err,
+        color="black",
+        marker=".",
+        markersize=10,
+        linewidth=0,
+        elinewidth=1,
+    )
+
+    rax.set_ylim(ratioRange[0], ratioRange[1])
+    rax.set_ylabel("Ratio")
+
+    if logY:
+        ax.set_yscale("log")
+        ax.set_ylim(1, ax.get_ylim()[1] * 5)
+
+    if xRange is not None:
+        ax.set_xlim(xRange[0], xRange[1])
+    if yRange is not None:
+        ax.set_ylim(yRange[0], yRange[1])
+
+    # CMS text exactly in the same style/placement
+    CMS = plt.text(
+        0.0,
+        1.0,
+        r"$\bf{CMS}$ Preliminary",
+        fontsize=16,
+        horizontalalignment="left",
+        verticalalignment="bottom",
+        transform=ax.transAxes,
+    )
+
+    if extraText is not None:
+        extraLabel = plt.text(
+            0.02,
+            0.99,
+            extraText,
+            fontsize=16,
+            horizontalalignment="left",
+            verticalalignment="top",
+            transform=ax.transAxes,
+        )
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.1)
+
+    lumi_text = plt.text(
+        1.0,
+        1.0,
+        r"%.1f fb$^{-1}$ (13 TeV)" % (lumi),
+        fontsize=16,
+        horizontalalignment="right",
+        verticalalignment="bottom",
+        transform=ax.transAxes,
+    )
+    rax.set_xlabel(title)
+
+    return fig, ax, rax
+
+
