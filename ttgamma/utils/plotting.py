@@ -404,6 +404,281 @@ def plotWithRatio(
     )
     return fig, ax, rax
 
+def plotWithRatio_freq(
+    h,
+    hData,
+    overlay,
+    stacked=True,
+    density=False,
+    lumi=35.9,
+    label="CMS Preliminary",
+    colors=None,
+    ratioRange=[0.5, 1.5],
+    xRange=None,
+    yRange=None,
+    logY=False,
+    extraText=None,
+    leg="upper right",
+    binwnorm=None,
+    displeg=True,
+    band_nominal=None,
+    band_err=None,
+):
+
+    # make a nice ratio plot
+    plt.rcParams.update(
+        {
+            "font.size": 14,
+            "axes.titlesize": 18,
+            "axes.labelsize": 18,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+        }
+    )
+    if not hData is None:
+        fig, (ax, rax) = plt.subplots(
+            2, 1, figsize=(7, 7), gridspec_kw={"height_ratios": (3, 1)}, sharex=True
+        )
+        fig.subplots_adjust(hspace=0.07)
+    else:
+        fig, ax = plt.subplots(
+            1, 1, figsize=(7, 7)
+        )  # , gridspec_kw={"height_ratios": (3, 1)}, sharex=True)
+
+    # Here is an example of setting up a color cycler to color the various fill patches
+    # http://colorbrewer2.org/#type=qualitative&scheme=Paired&n=6
+    from cycler import cycler
+
+    if not colors is None:
+        #if True:
+        #    _n = len(h.identifiers(overlay)) - 1
+        #    colors = colors[_n::-1]
+        ax.set_prop_cycle(cycler(color=colors))
+
+    h.plot(
+        overlay=overlay,
+        ax=ax,
+        stack=stacked,
+        histtype='fill',
+        binwnorm=binwnorm,
+        edgecolor='black',
+        linewidth=1,
+    )
+
+    if band_nominal is None or band_err is None:
+        band_nominal = np.asarray(h[{overlay:sum}].values(), dtype=float)
+        hvars = h[{overlay:sum}].variances()
+        if hvars is None:
+            band_err = np.sqrt(np.clip(band_nominal, 0.0, None))
+        else:
+            band_err = np.sqrt(np.clip(hvars, 0.0, None))
+    else:
+        band_nominal = np.asarray(band_nominal, dtype=float)
+        band_err = np.asarray(band_err, dtype=float)
+
+    band_up = band_nominal + band_err
+    band_do = band_nominal - band_err
+    
+    #if binwnorm:
+    #    
+    #    mcStatUp = np.append((h[{overlay:sum}].values() + np.sqrt(h[{overlay:sum}].variances()))/np.diff(hData.axes[0].edges),[0])
+    #    mcStatDo = np.append((h[{overlay:sum}].values() - np.sqrt(h[{overlay:sum}].variances()))/np.diff(hData.axes[0].edges),[0])
+    
+    #    uncertainty_band = ax.fill_between(
+    #        hData.axes[0].edges,
+    #        mcStatUp,
+    #        mcStatDo,
+    #        step='post',
+    #        hatch='///',
+    #        facecolor='none',
+    #        edgecolor='gray',
+    #        linewidth=0,
+    #)
+    #else:
+    #    
+    #    mcStatUp = np.append(h[{overlay:sum}].values() + np.sqrt(h[{overlay:sum}].variances()),[0])
+    #    mcStatDo = np.append(h[{overlay:sum}].values() - np.sqrt(h[{overlay:sum}].variances()),[0])
+    
+    #    uncertainty_band = ax.fill_between(
+    #        hData.axes[0].edges,
+    #        mcStatUp,
+    #        mcStatDo,
+    #        step='post',
+    #        hatch='///',
+    #        facecolor='none',
+    #        edgecolor='gray',
+    #        linewidth=0,
+    #)
+    
+    if binwnorm:
+        widths = np.diff(hData.axes[0].edges)
+        y_up = np.append(band_up / widths, [0])
+        y_do = np.append(band_do / widths, [0])
+    else:
+        y_up = np.append(band_up, [0])
+        y_do = np.append(band_do, [0])
+
+    uncertainty_band = ax.fill_between(
+        hData.axes[0].edges,
+        y_up,
+        y_do,
+        step='post',
+        hatch='///',
+        facecolor='none',
+        edgecolor='gray',
+        linewidth=0,
+    )
+
+    if not hData is None:
+        
+        if binwnorm:
+            ax.errorbar(x=hData.axes[0].centers,
+                        y=hData.values()/np.diff(hData.axes[0].edges),
+                        yerr=np.sqrt(hData.values())/np.diff(hData.axes[0].edges),
+                        color='black',
+                        marker='.',
+                        markersize=10,
+                        linewidth=0,
+                        elinewidth=0.5,
+                        label="Data",
+            )
+        else:
+            ax.errorbar(x=hData.axes[0].centers,
+                        y=hData.values(),
+                        yerr=np.sqrt(hData.values()),
+                        color='black',
+                        marker='.',
+                        markersize=10,
+                        linewidth=0,
+                        elinewidth=1,
+                        label="Data",
+            )
+        
+    if not binwnorm is None:
+        ax.set_ylabel(f"<Events/{binwnorm}>")
+        if "[" in ax.get_xlabel():
+            units = ax.get_xlabel().split("[")[-1].split("]")[0]
+            ax.set_ylabel(f"<Events / {binwnorm} {units}>")
+    else:
+        ax.set_ylabel('Events')
+
+    ax.autoscale(axis="x", tight=True)
+    ax.set_ylim(0, None)
+
+    ax.set_xlabel(None)
+
+    if leg == "right":
+        leg_anchor = (1.0, 1.0)
+        leg_loc = "upper left"
+    elif leg == "upper right":
+        leg_anchor = (1.0, 1.0)
+        leg_loc = "upper right"
+    elif leg == "upper left":
+        leg_anchor = (0.0, 1.0)
+        leg_loc = "upper left"
+
+    if not leg is None:
+        legend = ax.legend(bbox_to_anchor=leg_anchor, loc=leg_loc)
+    if displeg==False:
+        legend.remove()
+        
+    #ratio_mcStatUp = np.append(1 + np.sqrt(h[{overlay:sum}].variances())/h[{overlay:sum}].values(),[0])
+    #ratio_mcStatDo = np.append(1 - np.sqrt(h[{overlay:sum}].variances())/h[{overlay:sum}].values(),[0])
+     
+    
+    #ratio_uncertainty_band = rax.fill_between(
+    #    hData.axes[0].edges,
+    #    ratio_mcStatUp,
+    #    ratio_mcStatDo,
+    #    step='post',
+    #    color='lightgray',
+    #)
+    
+    frac_err = np.divide(
+        band_err,
+        band_nominal,
+        out=np.zeros_like(band_err, dtype=float),
+        where=band_nominal > 0,
+    )
+
+    ratio_mcStatUp = np.append(1.0 + frac_err, [0])
+    ratio_mcStatDo = np.append(1.0 - frac_err, [0])
+
+    ratio_uncertainty_band = rax.fill_between(
+        hData.axes[0].edges,
+        ratio_mcStatUp,
+        ratio_mcStatDo,
+        step='post',
+        color='lightgray',
+    )
+        
+    if not hData is None:
+        
+        hist_1_values = np.asarray(hData.values(), dtype=float)
+        hist_2_values = np.asarray(band_nominal, dtype=float)
+    
+        ratios = np.divide(
+            hist_1_values,
+            hist_2_values,
+            out=np.zeros_like(hist_1_values, dtype=float),
+            where=hist_2_values > 0,
+        )
+        ratio_uncert = hist.intervals.ratio_uncertainty(
+            num=hist_1_values,
+            denom=hist_2_values,
+            uncertainty_type="poisson",
+            
+        )
+        # ratio: plot the ratios using Matplotlib errorbar or bar
+        hist.plot.plot_ratio_array(
+            hData, ratios, ratio_uncert, ax=rax, uncert_draw_type='line',
+        );
+
+        rax.set_ylim(ratioRange[0], ratioRange[1])
+
+    if logY:
+        ax.set_yscale("log")
+        ax.set_ylim(1, ax.get_ylim()[1] * 5)
+
+    if not xRange is None:
+        ax.set_xlim(xRange[0], xRange[1])
+    if not yRange is None:
+        ax.set_ylim(yRange[0], yRange[1])
+
+    CMS = plt.text(
+        0.0,
+        1.0,
+        r"$\bf{CMS}$ Preliminary",
+        fontsize=16,
+        horizontalalignment="left",
+        verticalalignment="bottom",
+        transform=ax.transAxes,
+    )
+
+    if not extraText is None:
+
+        extraLabel = plt.text(
+            0.02,
+            0.99,
+            extraText,
+            fontsize=16,
+            horizontalalignment="left",
+            verticalalignment="top",
+            transform=ax.transAxes,
+        )
+        ax.set_ylim(0, ax.get_ylim()[1] * 1.1)
+
+    lumi = plt.text(
+        1.0,
+        1.0,
+        r"%.1f fb$^{-1}$ (13 TeV)" % (lumi),
+        fontsize=16,
+        horizontalalignment="right",
+        verticalalignment="bottom",
+        transform=ax.transAxes,
+    )
+    return fig, ax, rax
+
 def plot_bayesian_postfit(
     pred_summary,
     data_vals,
@@ -535,17 +810,17 @@ def plot_bayesian_postfit(
         facecolor="none",
         edgecolor="gray",
         linewidth=0,
-        label="68% credible band",
+        #label="68% credible band",
     )
 
     # Total posterior median outline ##
-    ax.stairs(
-        total_med_plot,
-        bin_edges,
-        color="black",
-        linewidth=1,
-        label="Posterior median",
-    )
+    #ax.stairs(
+    #    total_med_plot,
+    #    bin_edges,
+    #    color="black",
+    #    linewidth=1,
+    #    label="Posterior median",
+    #)
 
     # Data styling to match plotWithRatio
     ax.errorbar(
